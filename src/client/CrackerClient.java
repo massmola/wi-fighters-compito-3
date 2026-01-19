@@ -16,6 +16,7 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     private String teamName = "Wi-Fighters";
     private ServerCommInterface server;
     private List<WorkerCommInterface> workers = new ArrayList<>();
+    private boolean solutionFound = false;
 
     // Config
     private static final int WORKER_PORT = 1099;
@@ -64,7 +65,10 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     }
 
     @Override
-    public void submitInternalSolution(String solution) throws RemoteException {
+    public synchronized void submitInternalSolution(String solution) throws RemoteException {
+        if (solutionFound) return;
+        solutionFound = true;
+
         System.out.println("Solution found by a worker: " + solution);
         stopAllWorkers();
         try {
@@ -90,6 +94,9 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     @Override
     public void publishProblem(byte[] hash, int problemsize) throws Exception {
         System.out.println("Received problem. Max: " + problemsize);
+        synchronized (this) {
+            solutionFound = false;
+        }
 
         synchronized (this) {
             if (workers.isEmpty()) {
