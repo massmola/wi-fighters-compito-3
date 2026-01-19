@@ -2,7 +2,7 @@
 
 ## Team
 **Team Name**: Wi-Fighters
-**Members**: Massimiliano, Gioele  
+**Members**: Massimiliano, Gioele, Lorenzo
 
 ## A) Strategy for Problem Subdivision
 The problem space (integers from 0 to `problemsize`) is subdivided using a simple static partitioning strategy.
