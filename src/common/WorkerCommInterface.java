@@ -11,4 +11,10 @@ public interface WorkerCommInterface extends Remote {
      * @throws RemoteException
      */
     void solve(byte[] hash, long start, long end) throws RemoteException;
+
+    /**
+     * Stops the calculation on this worker.
+     * @throws RemoteException
+     */
+    void stop() throws RemoteException;
 }

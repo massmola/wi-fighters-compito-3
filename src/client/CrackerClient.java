@@ -18,15 +18,18 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     private List<WorkerCommInterface> workers = new ArrayList<>();
 
     // Config
-    private static final int WORKER_PORT = 1099; // Default RMI port for internal comms
-    private static final String SERVER_HOST = "localhost"; // Default validation server host
-    private static final String SERVER_SERVICE = "Server"; // Default service name
+    private static final int WORKER_PORT = 1099;
+    private static String serverHost = "localhost";
+    private static final String SERVER_SERVICE = "Server";
 
     protected CrackerClient() throws RemoteException {
         super();
     }
 
     public static void main(String[] args) {
+        if (args.length > 0) {
+            serverHost = args[0];
+        }
         try {
             CrackerClient client = new CrackerClient();
             client.start();
@@ -36,7 +39,6 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     }
 
     public void start() throws Exception {
-        // 1. Start Internal Registry for Workers
         try {
             LocateRegistry.createRegistry(WORKER_PORT);
             System.out.println("Internal RMI Registry started on port " + WORKER_PORT);
@@ -47,19 +49,13 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
         Naming.rebind("rmi://localhost:" + WORKER_PORT + "/Master", this);
         System.out.println("MasterRepInterface bound.");
 
-        // 2. Connect to Contest Server
-        // Note: In a real scenario, we might want to wait for workers before
-        // registering?
-        // But instructions imply we register first.
-        String serverUrl = "rmi://" + SERVER_HOST + "/" + SERVER_SERVICE;
-        System.out.println("Connecting to server at " + serverUrl);
+        String serverUrl = "rmi://" + serverHost + "/" + SERVER_SERVICE;
+        System.out.println("Connecting to contest server at " + serverUrl);
         server = (ServerCommInterface) Naming.lookup(serverUrl);
 
         server.register(teamName, this);
         System.out.println("Registered with server as " + teamName);
     }
-
-    // --- MasterRepInterface Implementation ---
 
     @Override
     public synchronized void registerWorker(WorkerCommInterface worker) throws RemoteException {
@@ -69,46 +65,57 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
 
     @Override
     public void submitInternalSolution(String solution) throws RemoteException {
-        System.out.println("Solution found by worker: " + solution);
+        System.out.println("Solution found by a worker: " + solution);
+        stopAllWorkers();
         try {
             server.submitSolution(teamName, solution);
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Failed to submit solution to server: " + e.getMessage());
         }
     }
 
-    // --- ClientCommInterface Implementation ---
+    private void stopAllWorkers() {
+        System.out.println("Stopping all workers...");
+        for (WorkerCommInterface worker : new ArrayList<>(workers)) {
+            new Thread(() -> {
+                try {
+                    worker.stop();
+                } catch (RemoteException e) {
+                    System.err.println("Failed to stop a worker (likely disconnected).");
+                }
+            }).start();
+        }
+    }
 
     @Override
     public void publishProblem(byte[] hash, int problemsize) throws Exception {
         System.out.println("Received problem. Max: " + problemsize);
 
-        if (workers.isEmpty()) {
-            System.err.println("No workers available to solve problem!");
-            return;
-        }
+        synchronized (this) {
+            if (workers.isEmpty()) {
+                System.err.println("No workers available!");
+                return;
+            }
 
-        long totalRange = problemsize;
-        long chunkSize = totalRange / workers.size();
+            long totalRange = problemsize;
+            long chunkSize = totalRange / workers.size();
 
-        // Simple equal distribution
-        // For last worker, give the remainder
+            for (int i = 0; i < workers.size(); i++) {
+                long start = i * chunkSize;
+                long end = (i == workers.size() - 1) ? totalRange : (start + chunkSize - 1);
+                WorkerCommInterface worker = workers.get(i);
 
-        for (int i = 0; i < workers.size(); i++) {
-            long start = i * chunkSize;
-            long end = (i == workers.size() - 1) ? totalRange : (start + chunkSize - 1);
-
-            WorkerCommInterface worker = workers.get(i);
-
-            // Call async to avoid blocking
-            new Thread(() -> {
-                try {
-                    worker.solve(hash, start, end);
-                } catch (RemoteException e) {
-                    e.printStackTrace();
-                    // Handle worker failure? Remove from list?
-                }
-            }).start();
+                new Thread(() -> {
+                    try {
+                        worker.solve(hash, start, end);
+                    } catch (RemoteException e) {
+                        System.err.println("Worker failed during solve. Removing.");
+                        synchronized (this) {
+                            workers.remove(worker);
+                        }
+                    }
+                }).start();
+            }
         }
     }
 }
