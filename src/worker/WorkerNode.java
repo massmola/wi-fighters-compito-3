@@ -8,6 +8,9 @@ import java.math.BigInteger;
 
 import common.MasterRepInterface;
 import common.WorkerCommInterface;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterface {
 
@@ -15,6 +18,17 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
     private static String masterHost = "localhost";
     private static final int MASTER_PORT = 1099;
     private static final String MASTER_SERVICE = "Master";
+    
+    // Cache: LRU Cache with max 100,000 entries
+    private static final int MAX_CACHE_SIZE = 100000;
+    private Map<String, String> hashCache = Collections.synchronizedMap(
+        new LinkedHashMap<String, String>(MAX_CACHE_SIZE + 1, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > MAX_CACHE_SIZE;
+            }
+        }
+    );
 
     private volatile boolean running = false;
 
@@ -60,6 +74,14 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
     @Override
     public void solve(byte[] hash, long start, long end) throws RemoteException {
         System.out.println("Starting search from " + start + " to " + end);
+
+        String targetHex = toHex(hash);
+        if (hashCache.containsKey(targetHex)) {
+            String found = hashCache.get(targetHex);
+            System.out.println("CACHE HIT: " + found);
+            master.submitInternalSolution(found);
+            return;
+        }
 
         new Thread(() -> {
             try {
@@ -116,6 +138,10 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
             for (long val = tStart; val <= tEnd && running; val++) {
                 String candidate = String.valueOf(val);
                 byte[] computedHash = md.digest(candidate.getBytes());
+                
+                // Cache every computed hash (Rainbow Table) - Memory intensive!
+                String computedHex = toHex(computedHash);
+                hashCache.put(computedHex, candidate);
 
                 if (matches(computedHash, targetHash)) {
                     System.out.println("FOUND MATCH: " + candidate);

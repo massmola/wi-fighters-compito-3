@@ -32,7 +32,7 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     private static final String SERVER_SERVICE = "server";
     // Number of chunks to split the work into. 
     // Higher number = better load balancing but more RMI overhead.
-    private static final int TOTAL_CHUNKS = 100; 
+    private static final int TOTAL_CHUNKS = 5; 
 
     protected CrackerClient() throws RemoteException {
         super();
