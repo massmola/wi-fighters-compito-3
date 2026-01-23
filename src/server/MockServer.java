@@ -14,7 +14,7 @@ public class MockServer extends UnicastRemoteObject implements ServerCommInterfa
 
     // Config
     private static final int PORT = 1099;
-    private static final String SERVICE_NAME = "Server";
+    private static final String SERVICE_NAME = "server";
 
     protected MockServer() throws RemoteException {
         super();
