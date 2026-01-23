@@ -112,6 +112,13 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
                 Thread.currentThread().interrupt();
             }
         }
+        if (running) {
+             try {
+                master.taskCompleted(this);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
         System.out.println("Finished (or stopped) range " + start + "-" + end);
     }
 

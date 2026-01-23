@@ -16,4 +16,11 @@ public interface MasterRepInterface extends Remote {
      * @throws RemoteException
      */
     void submitInternalSolution(String solution) throws RemoteException;
+
+    /**
+     * Called by a worker when it finishes a task range without finding a solution.
+     * @param worker The worker stub
+     * @throws RemoteException
+     */
+    void taskCompleted(WorkerCommInterface worker) throws RemoteException;
 }

@@ -5,7 +5,10 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 
 import server.ServerCommInterface;
 import common.MasterRepInterface;
@@ -18,11 +21,18 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     private ServerCommInterface server;
     private List<WorkerCommInterface> workers = new ArrayList<>();
     private boolean solutionFound = false;
+    
+    // Chunking state
+    private Queue<long[]> pendingTasks = new LinkedList<>();
+    private byte[] currentProblemHash;
 
     // Config
     private static final int WORKER_PORT = 1099;
     private static String serverHost = "localhost";
     private static final String SERVER_SERVICE = "server";
+    // Number of chunks to split the work into. 
+    // Higher number = better load balancing but more RMI overhead.
+    private static final int TOTAL_CHUNKS = 100; 
 
     protected CrackerClient() throws RemoteException {
         super();
@@ -102,6 +112,11 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
         public void submitInternalSolution(String solution) throws RemoteException {
             CrackerClient.this.submitInternalSolution(solution);
         }
+
+        @Override
+        public void taskCompleted(WorkerCommInterface worker) throws RemoteException {
+            CrackerClient.this.assignNextTask(worker);
+        }
     }
 
     // --- Logic ---
@@ -112,11 +127,41 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
 
         System.out.println("Solution found by a worker: " + solution);
         stopAllWorkers();
+        pendingTasks.clear(); // Clear separate tasks
         try {
             server.submitSolution(teamName, solution);
         } catch (Exception e) {
             System.err.println("Failed to submit solution to server: " + e.getMessage());
         }
+    }
+
+    private synchronized void assignNextTask(WorkerCommInterface worker) {
+        if (solutionFound) return;
+        
+        long[] range = pendingTasks.poll();
+        if (range == null) {
+            // No more work
+            System.out.println("No more tasks pending. Worker idle.");
+            return;
+        }
+
+        long start = range[0];
+        long end = range[1];
+        
+        System.out.println("Assigning range " + start + "-" + end + " to worker."); // Can include worker ID if available
+        
+        new Thread(() -> {
+            try {
+                worker.solve(currentProblemHash, start, end);
+            } catch (RemoteException e) {
+                System.err.println("Worker failed during solve. Removing.");
+                synchronized (CrackerClient.this) {
+                    workers.remove(worker);
+                    // Re-queue the failed task!
+                    pendingTasks.add(range); 
+                }
+            }
+        }).start();
     }
 
     private void stopAllWorkers() {
@@ -137,33 +182,38 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
         System.out.println("Received problem. Max: " + problemsize);
         synchronized (this) {
             solutionFound = false;
-        }
+            currentProblemHash = hash;
+            pendingTasks.clear();
 
-        synchronized (this) {
             if (workers.isEmpty()) {
                 System.err.println("No workers available!");
                 return;
             }
 
+            // Chunk generation
             long totalRange = problemsize;
-            long chunkSize = totalRange / workers.size();
-
-            for (int i = 0; i < workers.size(); i++) {
+            // Use Math.max to prevent chunk size 0
+            long chunkSize = Math.max(1, totalRange / TOTAL_CHUNKS);
+            
+            List<long[]> chunks = new ArrayList<>();
+            for (int i = 0; i < TOTAL_CHUNKS; i++) {
                 long start = i * chunkSize;
-                long end = (i == workers.size() - 1) ? totalRange : (start + chunkSize - 1);
-                WorkerCommInterface worker = workers.get(i);
+                // If last chunk, go to end (handle remainder)
+                long end = (i == TOTAL_CHUNKS - 1) ? totalRange : (start + chunkSize - 1);
+                
+                if (start <= end) {
+                    chunks.add(new long[]{start, end});
+                }
+            }
 
-                new Thread(() -> {
-                    try {
-                        worker.solve(hash, start, end);
-                    } catch (RemoteException e) {
-                        System.err.println("Worker failed during solve. Removing. Error: " + e.getMessage());
-                        e.printStackTrace();
-                        synchronized (this) {
-                            workers.remove(worker);
-                        }
-                    }
-                }).start();
+            // Randomize order
+            Collections.shuffle(chunks);
+            pendingTasks.addAll(chunks);
+            System.out.println("Generated " + chunks.size() + " random chunks. Starting distribution...");
+
+            // Initial assignment: give 1 chunk to each worker
+            for (WorkerCommInterface worker : workers) {
+                assignNextTask(worker);
             }
         }
     }

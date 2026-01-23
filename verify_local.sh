@@ -13,7 +13,7 @@ sleep 1
 
 # Start Server
 echo "Starting MockServer..."
-java -cp bin server.MockServer > server.log 2>&1 &
+(sleep 5; echo "publish 12345"; sleep 10) | java -cp bin server.MockServer > server.log 2>&1 &
 SERVER_PID=$!
 sleep 2
 
