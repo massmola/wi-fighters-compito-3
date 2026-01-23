@@ -18,6 +18,8 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
     private static String masterHost = "localhost";
     private static final int MASTER_PORT = 1099;
     private static final String MASTER_SERVICE = "Master";
+    // Thread tracking
+    private Thread workerThread;
     
     // Cache: LRU Cache with max 100,000 entries
     private static final int MAX_CACHE_SIZE = 100000;
@@ -72,8 +74,19 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
     }
 
     @Override
-    public void solve(byte[] hash, long start, long end) throws RemoteException {
+    public synchronized void solve(byte[] hash, long start, long end) throws RemoteException {
         System.out.println("Starting search from " + start + " to " + end);
+
+        // Preemption: Stop existing work
+        if (workerThread != null && workerThread.isAlive()) {
+            System.out.println("Preempting previous task...");
+            running = false;
+            try {
+                workerThread.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
 
         String targetHex = toHex(hash);
         if (hashCache.containsKey(targetHex)) {
@@ -83,13 +96,14 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
             return;
         }
 
-        new Thread(() -> {
+        workerThread = new Thread(() -> {
             try {
                 bruteForceMultiThreaded(hash, start, end);
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        }).start();
+        });
+        workerThread.start();
     }
 
     private void bruteForceMultiThreaded(byte[] targetHash, long start, long end) {
