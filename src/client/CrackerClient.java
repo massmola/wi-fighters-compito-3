@@ -10,8 +10,9 @@ import java.util.List;
 import server.ServerCommInterface;
 import common.MasterRepInterface;
 import common.WorkerCommInterface;
+import client.ClientCommInterface;
 
-public class CrackerClient extends UnicastRemoteObject implements ClientCommInterface, MasterRepInterface {
+public class CrackerClient extends UnicastRemoteObject implements ClientCommInterface {
 
     private String teamName = "Wi-Fighters";
     private ServerCommInterface server;
@@ -21,7 +22,7 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
     // Config
     private static final int WORKER_PORT = 1099;
     private static String serverHost = "localhost";
-    private static final String SERVER_SERVICE = "Server";
+    private static final String SERVER_SERVICE = "server";
 
     protected CrackerClient() throws RemoteException {
         super();
@@ -55,25 +56,57 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
             System.out.println("RMI Registry already running or failed: " + e.getMessage());
         }
 
-        Naming.rebind("rmi://localhost:" + WORKER_PORT + "/Master", this);
-        System.out.println("MasterRepInterface bound.");
+        // Create and bind the separate handler for Workers
+        WorkerHandler workerHandler = new WorkerHandler();
+        Naming.rebind("rmi://localhost:" + WORKER_PORT + "/Master", workerHandler);
+        System.out.println("MasterRepInterface bound (WorkerHandler).");
 
         String serverUrl = "rmi://" + serverHost + "/" + SERVER_SERVICE;
         System.out.println("Connecting to contest server at " + serverUrl);
-        server = (ServerCommInterface) Naming.lookup(serverUrl);
+
+        try {
+            server = (ServerCommInterface) Naming.lookup(serverUrl);
+        } catch (java.rmi.NotBoundException e) {
+            System.err.println("Error: Service '" + SERVER_SERVICE + "' not bound at " + serverUrl);
+            System.err.println("Available services at " + serverHost + ":");
+            try {
+                String[] list = Naming.list("rmi://" + serverHost + ":1099");
+                for (String s : list) {
+                    System.err.println(" - " + s);
+                }
+            } catch (Exception listEx) {
+                System.err.println("Could not list services: " + listEx.getMessage());
+            }
+            throw e; // Re-throw to stop execution
+        }
 
         server.register(teamName, this);
         System.out.println("Registered with server as " + teamName);
     }
 
-    @Override
-    public synchronized void registerWorker(WorkerCommInterface worker) throws RemoteException {
-        workers.add(worker);
-        System.out.println("Worker registered. Total workers: " + workers.size());
+    // --- Inner class to handle Workers ---
+    private class WorkerHandler extends UnicastRemoteObject implements MasterRepInterface {
+        protected WorkerHandler() throws RemoteException {
+            super();
+        }
+
+        @Override
+        public void registerWorker(WorkerCommInterface worker) throws RemoteException {
+            synchronized (CrackerClient.this) {
+                workers.add(worker);
+                System.out.println("Worker registered. Total workers: " + workers.size());
+            }
+        }
+
+        @Override
+        public void submitInternalSolution(String solution) throws RemoteException {
+            CrackerClient.this.submitInternalSolution(solution);
+        }
     }
 
-    @Override
-    public synchronized void submitInternalSolution(String solution) throws RemoteException {
+    // --- Logic ---
+
+    public synchronized void submitInternalSolution(String solution) {
         if (solutionFound) return;
         solutionFound = true;
 
