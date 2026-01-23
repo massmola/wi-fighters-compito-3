@@ -22,6 +22,15 @@ public class MockServer extends UnicastRemoteObject implements ServerCommInterfa
 
     public static void main(String[] args) {
         try {
+            // Set hostname property
+            String localIP = common.NetworkUtils.getLocalAddress();
+            if (localIP != null) {
+                System.setProperty("java.rmi.server.hostname", localIP);
+                System.out.println("Set java.rmi.server.hostname to " + localIP);
+            } else {
+                System.err.println("Could not determine local IP, using default");
+            }
+
             // Start Registry
             try {
                 LocateRegistry.createRegistry(PORT);

@@ -32,6 +32,14 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
             serverHost = args[0];
         }
         try {
+            String localIP = common.NetworkUtils.getLocalAddress();
+            if (localIP != null) {
+                System.setProperty("java.rmi.server.hostname", localIP);
+                System.out.println("Set java.rmi.server.hostname to " + localIP);
+            } else {
+                System.err.println("Could not determine local IP, using default");
+            }
+
             CrackerClient client = new CrackerClient();
             client.start();
         } catch (Exception e) {
@@ -116,7 +124,8 @@ public class CrackerClient extends UnicastRemoteObject implements ClientCommInte
                     try {
                         worker.solve(hash, start, end);
                     } catch (RemoteException e) {
-                        System.err.println("Worker failed during solve. Removing.");
+                        System.err.println("Worker failed during solve. Removing. Error: " + e.getMessage());
+                        e.printStackTrace();
                         synchronized (this) {
                             workers.remove(worker);
                         }

@@ -27,6 +27,14 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
             masterHost = args[0];
         }
         try {
+            String localIP = common.NetworkUtils.getLocalAddress();
+            if (localIP != null) {
+                System.setProperty("java.rmi.server.hostname", localIP);
+                System.out.println("Set java.rmi.server.hostname to " + localIP);
+            } else {
+                System.err.println("Could not determine local IP, using default (likely localhost)");
+            }
+
             WorkerNode worker = new WorkerNode();
             worker.start();
         } catch (Exception e) {
