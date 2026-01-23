@@ -75,43 +75,31 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
         int cores = Runtime.getRuntime().availableProcessors();
         System.out.println("Using " + cores + " threads for computation.");
 
-        long totalRange = end - start + 1;
-        long chunkSize = totalRange / cores;
+        if (cores == 1) {
+            searchRange(start, end, targetHash);
+        } else {
+            long totalRange = end - start + 1;
+            long chunkSize = totalRange / cores;
 
-        Thread[] threads = new Thread[cores];
-        for (int i = 0; i < cores; i++) {
-            long tStart = start + (i * chunkSize);
-            long tEnd = (i == cores - 1) ? end : (tStart + chunkSize - 1);
+            Thread[] threads = new Thread[cores];
+            for (int i = 0; i < cores; i++) {
+                long tStart = start + (i * chunkSize);
+                long tEnd = (i == cores - 1) ? end : (tStart + chunkSize - 1);
 
-            threads[i] = new Thread(() -> {
+                threads[i] = new Thread(() -> searchRange(tStart, tEnd, targetHash));
+                threads[i].start();
+            }
+
+            // Wait for threads
+            for (Thread t : threads) {
                 try {
-                    MessageDigest md = MessageDigest.getInstance("MD5");
-                    for (long val = tStart; val <= tEnd && running; val++) {
-                        String candidate = String.valueOf(val);
-                        byte[] computedHash = md.digest(candidate.getBytes());
-
-                        if (matches(computedHash, targetHash)) {
-                            System.out.println("FOUND MATCH: " + candidate);
-                            running = false; // Stop other local threads
-                            master.submitInternalSolution(candidate);
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
+                    t.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-            });
-            threads[i].start();
-        }
-
-        // Wait for threads (optional, but keep it clean)
-        for (Thread t : threads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             }
         }
+
         if (running) {
              try {
                 master.taskCompleted(this);
@@ -120,6 +108,25 @@ public class WorkerNode extends UnicastRemoteObject implements WorkerCommInterfa
             }
         }
         System.out.println("Finished (or stopped) range " + start + "-" + end);
+    }
+
+    private void searchRange(long tStart, long tEnd, byte[] targetHash) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            for (long val = tStart; val <= tEnd && running; val++) {
+                String candidate = String.valueOf(val);
+                byte[] computedHash = md.digest(candidate.getBytes());
+
+                if (matches(computedHash, targetHash)) {
+                    System.out.println("FOUND MATCH: " + candidate);
+                    running = false; // Stop other local threads
+                    master.submitInternalSolution(candidate);
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private boolean matches(byte[] h1, byte[] h2) {
